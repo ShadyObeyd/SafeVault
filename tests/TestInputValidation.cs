@@ -2,8 +2,10 @@ using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using NUnit.Framework;
 using SafeVault.Data;
 
@@ -72,18 +74,15 @@ public class TestInputValidation
 
         try
         {
-            using var client = factory.CreateClient();
+            using var client = CreateClient(factory);
             const string username = "<script>alert(1)</script>";
-            const string email = "<script>alert(2)</script>";
             var token = await GetRequestVerificationTokenAsync(client);
-            var response = await PostLoginAsync(client, token, username, email);
+            using var response = await PostLoginAsync(client, token, username, "UnusedPassword!123");
             var html = await response.Content.ReadAsStringAsync();
 
             Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
             Assert.That(html, Does.Contain("&lt;script&gt;alert(1)&lt;/script&gt;"));
-            Assert.That(html, Does.Contain("&lt;script&gt;alert(2)&lt;/script&gt;"));
             Assert.That(html, Does.Not.Contain(username));
-            Assert.That(html, Does.Not.Contain(email));
             Assert.That(response.Headers.GetValues("Content-Security-Policy").Single(),
                 Does.Contain("object-src 'none'"));
             Assert.That(response.Headers.GetValues("X-Content-Type-Options").Single(), Is.EqualTo("nosniff"));
@@ -103,14 +102,14 @@ public class TestInputValidation
 
         try
         {
-            using var client = factory.CreateClient();
+            using var client = CreateClient(factory);
             using var content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["Username"] = "alice",
-                ["Email"] = "alice@example.com"
+                ["Password"] = "UnusedPassword!123"
             });
 
-            var response = await client.PostAsync("/Users/Login", content);
+            using var response = await client.PostAsync("/Users/Login", content);
 
             Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
         }
@@ -129,13 +128,24 @@ public class TestInputValidation
 
         try
         {
-            using var client = factory.CreateClient();
+            var repository = new UserRepository(new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Pooling = false
+            }.ToString());
+            await repository.InitializeAsync();
+            await repository.CreateUserAsync(
+                "alice",
+                "alice@example.com",
+                "CorrectHorseBattery!42");
+
+            using var client = CreateClient(factory);
             var token = await GetRequestVerificationTokenAsync(client);
-            var response = await PostLoginAsync(client, token, "alice", "alice@example.com");
+            using var response = await PostLoginAsync(client, token, "alice", "CorrectHorseBattery!42");
 
             Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
             Assert.That(response.RequestMessage!.RequestUri!.Query, Is.Empty);
-            Assert.That(response.Headers.GetValues("Cache-Control").Single(), Is.EqualTo("no-store"));
+            Assert.That(response.Headers.GetValues("Cache-Control").Single(), Does.Contain("no-store"));
         }
         finally
         {
@@ -156,18 +166,25 @@ public class TestInputValidation
             .WithWebHostBuilder(builder =>
             {
                 builder.UseContentRoot(Path.GetFullPath(
-                    Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..")));
-                builder.ConfigureAppConfiguration((_, configuration) =>
-                    configuration.AddInMemoryCollection(new Dictionary<string, string?>
-                    {
-                        ["ConnectionStrings:DefaultConnection"] = connectionString
-                    }));
+                    Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "src")));
+                builder.ConfigureTestServices(services =>
+                {
+                    services.RemoveAll<UserRepository>();
+                    services.AddSingleton(new UserRepository(connectionString));
+                });
             });
     }
 
+    private static HttpClient CreateClient(WebApplicationFactory<Program> factory) =>
+        factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            HandleCookies = true
+        });
+
     private static async Task<string> GetRequestVerificationTokenAsync(HttpClient client)
     {
-        var response = await client.GetAsync("/Users/Login");
+        using var response = await client.GetAsync("/Users/Login");
         var html = await response.Content.ReadAsStringAsync();
         var match = Regex.Match(
             html,
@@ -178,19 +195,19 @@ public class TestInputValidation
         return match.Groups[1].Value;
     }
 
-    private static Task<HttpResponseMessage> PostLoginAsync(
+    private static async Task<HttpResponseMessage> PostLoginAsync(
         HttpClient client,
         string token,
         string username,
-        string email)
+        string password)
     {
-        var content = new FormUrlEncodedContent(new Dictionary<string, string>
+        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["__RequestVerificationToken"] = token,
             ["Username"] = username,
-            ["Email"] = email
+            ["Password"] = password
         });
-        return client.PostAsync("/Users/Login", content);
+        return await client.PostAsync("/Users/Login", content);
     }
 
     private static string CreateDatabasePath() =>

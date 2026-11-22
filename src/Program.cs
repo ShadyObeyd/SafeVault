@@ -1,3 +1,5 @@
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Mvc;
 using SafeVault.Data;
 
@@ -8,12 +10,48 @@ builder.Services.AddControllersWithViews(options =>
     options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' was not found.");
-var userRepository = new UserRepository(connectionString);
-builder.Services.AddSingleton(userRepository);
+if (args.Length == 1 && args[0].Equals("--provision-user", StringComparison.Ordinal))
+{
+    var userRepository = new UserRepository(connectionString);
+    await userRepository.InitializeAsync();
+    await UserProvisioningCommand.RunAsync(userRepository);
+    return;
+}
+
+builder.Services.AddSingleton(new UserRepository(connectionString));
+builder.Services
+    .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.Cookie.Name = "__Host-SafeVault.Auth";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        options.Cookie.SameSite = SameSiteMode.Strict;
+        options.Cookie.Path = "/";
+        options.LoginPath = "/Users/Login";
+        options.AccessDeniedPath = "/Users/AccessDenied";
+        options.ExpireTimeSpan = TimeSpan.FromMinutes(30);
+        options.SlidingExpiration = false;
+    });
+builder.Services.AddAuthorization();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(5),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+});
 
 var app = builder.Build();
 
-await userRepository.InitializeAsync();
+await app.Services.GetRequiredService<UserRepository>().InitializeAsync();
 
 app.Use(async (context, next) =>
 {
@@ -35,6 +73,8 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseRouting();
+app.UseRateLimiter();
+app.UseAuthentication();
 
 app.UseAuthorization();
 

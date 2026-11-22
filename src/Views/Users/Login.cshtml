@@ -1,13 +1,22 @@
-@model UserViewModel
+@model LoginViewModel
+
+@if (TempData["RegistrationSuccess"] is string registrationSuccess)
+{
+    <p class="text-success">@registrationSuccess</p>
+}
 
 <form asp-action="Login" asp-controller="Users" method="post">
+    <div asp-validation-summary="All" class="text-danger"></div>
+
     <label asp-for="Username">Username:</label>
-    <input asp-for="Username" />
+    <input asp-for="Username" autocomplete="username" />
     <span asp-validation-for="Username" class="text-danger"></span>
     
-    <label asp-for="Email">Email:</label>
-    <input asp-for="Email">
-    <span asp-validation-for="Email" class="text-danger"></span>
+    <label asp-for="Password">Password:</label>
+    <input asp-for="Password" autocomplete="current-password" />
+    <span asp-validation-for="Password" class="text-danger"></span>
     
     <button type="submit">Submit</button>
 </form>
+
+<p>New to SafeVault? <a asp-action="Register">Create an account</a></p>

@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SafeVault.csproj" />
+    <ProjectReference Include="..\src\SafeVault.csproj" />
   </ItemGroup>
 
   <ItemGroup>
