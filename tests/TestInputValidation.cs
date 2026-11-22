@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using NUnit.Framework;
 using SafeVault.Data;
+using SafeVault.Security;
 
 [TestFixture]
 public class TestInputValidation
@@ -137,7 +138,8 @@ public class TestInputValidation
             await repository.CreateUserAsync(
                 "alice",
                 "alice@example.com",
-                "CorrectHorseBattery!42");
+                "CorrectHorseBattery!42",
+                UserRoles.User);
 
             using var client = CreateClient(factory);
             var token = await GetRequestVerificationTokenAsync(client);

@@ -1,4 +1,5 @@
 using System.Text;
+using SafeVault.Security;
 
 namespace SafeVault.Data;
 
@@ -10,6 +11,8 @@ public static class UserProvisioningCommand
         var username = Console.ReadLine() ?? string.Empty;
         Console.Write("Email: ");
         var email = Console.ReadLine() ?? string.Empty;
+        Console.Write($"Role ({UserRoles.User}/{UserRoles.Admin}): ");
+        var role = Console.ReadLine() ?? string.Empty;
 
         var password = ReadPassword("Password: ");
         var confirmation = ReadPassword("Confirm password: ");
@@ -18,7 +21,7 @@ public static class UserProvisioningCommand
             throw new InvalidOperationException("Passwords do not match.");
         }
 
-        if (!await userRepository.CreateUserAsync(username, email, password))
+        if (!await userRepository.CreateUserAsync(username, email, password, role))
         {
             throw new InvalidOperationException("A user with that username already exists.");
         }

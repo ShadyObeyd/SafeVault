@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using SafeVault.Data;
+using SafeVault.Security;
 
 public class UsersController(UserRepository userRepository) : Controller
 {
@@ -56,6 +57,7 @@ public class UsersController(UserRepository userRepository) : Controller
             model.Username,
             model.Email,
             model.Password,
+            UserRoles.User,
             cancellationToken);
 
         if (!created)

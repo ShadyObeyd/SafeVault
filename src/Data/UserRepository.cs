@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using SafeVault.Models;
+using SafeVault.Security;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
 using System.Text;
@@ -49,21 +50,36 @@ public sealed class UserRepository(string connectionString)
             "CREATE UNIQUE INDEX IF NOT EXISTS UX_Users_Username ON Users(Username COLLATE NOCASE)";
         await indexCommand.ExecuteNonQueryAsync(cancellationToken);
 
-        await using var promotionCommand = connection.CreateCommand();
-        promotionCommand.CommandText = """
+        await using (var migrationsCommand = connection.CreateCommand())
+        {
+            migrationsCommand.CommandText = """
+                CREATE TABLE IF NOT EXISTS SafeVaultMigrations (
+                    MigrationId TEXT NOT NULL PRIMARY KEY
+                )
+                """;
+            await migrationsCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        using var migrationTransaction = connection.BeginTransaction();
+        await using var demoteAdminsCommand = connection.CreateCommand();
+        demoteAdminsCommand.Transaction = migrationTransaction;
+        demoteAdminsCommand.CommandText = """
             UPDATE Users
             SET Role = 'User'
-            WHERE Role = 'Admin' AND PasswordHash = '';
-
-            UPDATE Users
-            SET Role = 'Admin'
-            WHERE Id = (SELECT MIN(Id) FROM Users WHERE PasswordHash <> '')
+            WHERE Role = 'Admin'
               AND NOT EXISTS (
-                  SELECT 1 FROM Users
-                  WHERE Role = 'Admin' AND PasswordHash <> ''
-              )
+                  SELECT 1
+                  FROM SafeVaultMigrations
+                  WHERE MigrationId = @MigrationId
+              );
+
+            INSERT OR IGNORE INTO SafeVaultMigrations (MigrationId)
+            VALUES (@MigrationId);
             """;
-        await promotionCommand.ExecuteNonQueryAsync(cancellationToken);
+        demoteAdminsCommand.Parameters.Add("@MigrationId", SqliteType.Text).Value =
+            "DemoteExistingAdminsAfterPublicSignup";
+        await demoteAdminsCommand.ExecuteNonQueryAsync(cancellationToken);
+        await migrationTransaction.CommitAsync(cancellationToken);
     }
 
     public async Task<User?> AuthenticateAsync(
@@ -120,10 +136,12 @@ public sealed class UserRepository(string connectionString)
         string username,
         string email,
         string password,
+        string role,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
         ArgumentException.ThrowIfNullOrWhiteSpace(password);
+        ArgumentException.ThrowIfNullOrWhiteSpace(role);
 
         if (!ValidationHelper.IsValidUsername(username))
         {
@@ -140,6 +158,11 @@ public sealed class UserRepository(string connectionString)
             throw new ArgumentException("Password must be at least 12 characters and at most 72 UTF-8 bytes.", nameof(password));
         }
 
+        if (role is not UserRoles.Admin and not UserRoles.User)
+        {
+            throw new ArgumentException("Role must be Admin or User.", nameof(role));
+        }
+
         var passwordHash = BCrypt.Net.BCrypt.HashPassword(password, workFactor: BCryptWorkFactor);
 
         await using var connection = new SqliteConnection(_connectionString);
@@ -148,17 +171,13 @@ public sealed class UserRepository(string connectionString)
         await using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO Users (Username, Email, PasswordHash, Role)
-            SELECT @Username, @Email, @PasswordHash,
-                   CASE
-                       WHEN NOT EXISTS (SELECT 1 FROM Users WHERE PasswordHash <> '') THEN 'Admin'
-                       ELSE 'User'
-                   END
-            WHERE NOT EXISTS (SELECT 1 FROM Users WHERE Username = @Username COLLATE NOCASE)
+            VALUES (@Username, @Email, @PasswordHash, @Role)
             ON CONFLICT DO NOTHING
             """;
         command.Parameters.Add("@Username", SqliteType.Text).Value = username;
         command.Parameters.Add("@Email", SqliteType.Text).Value = email;
         command.Parameters.Add("@PasswordHash", SqliteType.Text).Value = passwordHash;
+        command.Parameters.Add("@Role", SqliteType.Text).Value = role;
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
