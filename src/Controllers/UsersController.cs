@@ -11,11 +11,7 @@ public class UsersController : Controller
     [HttpPost]
     public IActionResult Login(UserViewModel user)
     {
-        if (ModelState.IsValid && 
-        ValidationHelper.IsValidInput(user.Username) && 
-        ValidationHelper.IsValidXSSInput(user.Username) && 
-        ValidationHelper.IsValidInput(user.Email) && 
-        ValidationHelper.IsValidXSSInput(user.Email))
+        if (ModelState.IsValid && ValidationHelper.IsValidUsername(user.Username))
         {
             return RedirectToAction(nameof(LoggedIn), user);
         }

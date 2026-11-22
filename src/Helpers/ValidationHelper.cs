@@ -1,31 +1,15 @@
 public static class ValidationHelper
 {
-    private static readonly string allowedSpecialCharacters = "!@#$%^&*?";
+    private const string AllowedUsernameSpecialCharacters = "!@#$%^&*?";
 
-    public static bool IsValidInput(string input)
+    public static bool IsValidUsername(string? username)
     {
-        if (string.IsNullOrWhiteSpace(input?.Trim()))
+        if (string.IsNullOrWhiteSpace(username) || username.Length > 50)
         {
             return false;
         }
 
-        var validCharacters = allowedSpecialCharacters.ToHashSet();
-
-        return input.All(c => char.IsLetterOrDigit(c) || validCharacters.Contains(c));
-    }
-
-    public static bool IsValidXSSInput(string input)
-    {
-        if (string.IsNullOrWhiteSpace(input?.Trim()))
-        {
-            return false;
-        }
-
-        if (input.Contains("<script") || input.Contains("<iframe"))
-        {
-            return false;
-        }
-
-        return true;
+        return username.All(character =>
+            char.IsLetterOrDigit(character) || AllowedUsernameSpecialCharacters.Contains(character));
     }
 }
