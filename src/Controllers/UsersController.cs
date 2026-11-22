@@ -11,17 +11,13 @@ public class UsersController : Controller
     [HttpPost]
     public IActionResult Login(UserViewModel user)
     {
+        Response.Headers["Cache-Control"] = "no-store";
+
         if (ModelState.IsValid && ValidationHelper.IsValidUsername(user.Username))
         {
-            return RedirectToAction(nameof(LoggedIn), user);
+            return View("LoggedIn", user);
         }
 
-        return View(user);
-    }
-
-    [HttpGet]
-    public IActionResult LoggedIn(UserViewModel user)
-    {
         return View(user);
     }
 }
