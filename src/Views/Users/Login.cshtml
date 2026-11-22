@@ -1,0 +1,13 @@
+@model UserViewModel
+
+<form asp-action="Login" asp-controller="Users" method="post">
+    <label asp-for="Username">Username:</label>
+    <input asp-for="Username" />
+    <span asp-validation-for="Username" class="text-danger"></span>
+    
+    <label asp-for="Email">Email:</label>
+    <input asp-for="Email">
+    <span asp-validation-for="Email" class="text-danger"></span>
+    
+    <button type="submit">Submit</button>
+</form>
