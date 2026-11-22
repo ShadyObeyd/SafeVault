@@ -27,7 +27,7 @@ public sealed class UserRepository(string connectionString)
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    public async Task<int> FindUserCountWithSameUsername(
+    public async Task<long> FindUserCountWithSameUsername(
         string username,
         CancellationToken cancellationToken = default)
     {
@@ -38,16 +38,17 @@ public sealed class UserRepository(string connectionString)
             throw new ArgumentOutOfRangeException(nameof(username), "Username cannot exceed 100 characters.");
         }
 
-        string query = "SELECT COUNT(1) FROM Users WHERE Username = @Username";
+        const string query = "SELECT COUNT(1) FROM Users WHERE Username = @Username";
 
         await using var connection = new SqliteConnection(_connectionString);
-        using var command = new SqliteCommand(query, connection);
-
-        command.Parameters.AddWithValue("@Username", username);
-
         await connection.OpenAsync(cancellationToken);
 
-        int count = command.ExecuteScalar() as int? ?? 0;
-        return count;
+        await using var command = new SqliteCommand(query, connection);
+        command.Parameters.Add("@Username", SqliteType.Text).Value = username;
+
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is long count
+            ? count
+            : throw new InvalidOperationException("The username count query returned an unexpected value.");
     }
 }
