@@ -1,14 +1,17 @@
-using Microsoft.EntityFrameworkCore;
 using SafeVault.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
-builder.Services.AddDbContext<SafeVaultDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' was not found.");
+var userRepository = new UserRepository(connectionString);
+builder.Services.AddSingleton(userRepository);
 
 var app = builder.Build();
+
+await userRepository.InitializeAsync();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
